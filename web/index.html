@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FindMy Linux — Live Device Radar</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        :root {
+            --bg: #090a0f;
+            --panel: #13141f;
+            --border: rgba(255, 255, 255, 0.08);
+            --accent: #3b82f6;
+            --accent-glow: rgba(59, 130, 246, 0.3);
+            --danger: #ef4444;
+            --success: #10b981;
+            --text: #f9fafb;
+            --muted: #9ca3af;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #sidebar {
+            width: 380px;
+            background: var(--panel);
+            border-right: 1px solid var(--border);
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            z-index: 1000;
+            box-shadow: 8px 0 32px rgba(0, 0, 0, 0.5);
+        }
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .logo {
+            font-size: 20px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .pulse-dot {
+            width: 10px;
+            height: 10px;
+            background: var(--success);
+            border-radius: 50%;
+            box-shadow: 0 0 12px var(--success);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.2); opacity: 1; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+        .badge {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--success);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+        }
+        .card-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--muted);
+            margin-bottom: 6px;
+        }
+        .card-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text);
+        }
+        .card-sub {
+            font-size: 13px;
+            color: var(--muted);
+            margin-top: 4px;
+            font-family: monospace;
+        }
+        .btn-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: auto;
+        }
+        .btn {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            padding: 14px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            text-decoration: none;
+        }
+        .btn:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+        .btn-danger {
+            background: var(--danger);
+        }
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
+        .btn-outline:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        #map {
+            flex: 1;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <div class="header">
+            <div class="logo">
+                <div class="pulse-dot"></div>
+                FindMy Linux
+            </div>
+            <span class="badge" id="live-indicator">LIVE FEED</span>
+        </div>
+
+        <div class="card">
+            <div class="card-label">Tracked Device</div>
+            <div class="card-value" id="device-name">ASUS Vivobook S 15</div>
+            <div class="card-sub" id="device-status">Signal: Active (Intel AX211 BLE)</div>
+        </div>
+
+        <div class="card">
+            <div class="card-label">Live Coordinates</div>
+            <div class="card-value" id="coords">Scanning...</div>
+            <div class="card-sub" id="accuracy">Accuracy: —</div>
+        </div>
+
+        <div class="card">
+            <div class="card-label">Last Ping Time</div>
+            <div class="card-value" id="last-ping" style="font-size: 16px;">Connecting...</div>
+            <div class="card-sub" id="poll-info">Auto-refreshing every 5 seconds</div>
+        </div>
+
+        <div class="btn-group">
+            <a class="btn" id="open-google-btn" href="#" target="_blank">
+                🌐 Open in Google Maps App
+            </a>
+            <a class="btn btn-outline" id="open-apple-btn" href="#" target="_blank">
+                🍎 Open in Apple Maps App
+            </a>
+            <button class="btn btn-danger" id="stolen-btn" onclick="toggleStolen()">
+                🚨 Mark as Stolen (Emergency Mode)
+            </button>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Initialize Map
+        const map = L.map('map', { zoomControl: false }).setView([28.6519, 77.2315], 14);
+        L.control.zoom({ position: 'topright' }).addTo(map);
+
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+            subdomains: 'abcd',
+            maxZoom: 19
+        }).addTo(map);
+
+        let marker = null;
+        let accuracyCircle = null;
+        let isStolen = false;
+
+        async function fetchLiveTelemetry() {
+            try {
+                const res = await fetch('/api/location');
+                if (!res.ok) throw new Error('API offline');
+                const data = await res.json();
+
+                const lat = data.latitude;
+                const lng = data.longitude;
+                const acc = data.accuracy || 25;
+                const time = new Date(data.timestamp || Date.now()).toLocaleTimeString();
+
+                document.getElementById('coords').innerText = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+                document.getElementById('accuracy').innerText = `Radius: ±${acc}m (${data.source || 'Wi-Fi/IP'})`;
+                document.getElementById('last-ping').innerText = `${time} (${data.city || 'Delhi'})`;
+
+                // Update external dynamic app links
+                document.getElementById('open-google-btn').href = `https://www.google.com/maps?q=${lat},${lng}`;
+                document.getElementById('open-apple-btn').href = `https://maps.apple.com/?q=${lat},${lng}`;
+
+                // Update Marker on Map
+                if (!marker) {
+                    marker = L.marker([lat, lng]).addTo(map);
+                    accuracyCircle = L.circle([lat, lng], {
+                        radius: acc,
+                        color: isStolen ? '#ef4444' : '#3b82f6',
+                        fillColor: isStolen ? '#ef4444' : '#3b82f6',
+                        fillOpacity: 0.15
+                    }).addTo(map);
+                    map.setView([lat, lng], 15);
+                } else {
+                    marker.setLatLng([lat, lng]);
+                    accuracyCircle.setLatLng([lat, lng]);
+                    accuracyCircle.setRadius(acc);
+                }
+            } catch (e) {
+                document.getElementById('last-ping').innerText = 'Reconnecting to device...';
+            }
+        }
+
+        function toggleStolen() {
+            isStolen = !isStolen;
+            const btn = document.getElementById('stolen-btn');
+            if (isStolen) {
+                btn.innerText = '🛡️ Disarm Lost Mode';
+                btn.style.background = '#10b981';
+                if (accuracyCircle) accuracyCircle.setStyle({ color: '#ef4444', fillColor: '#ef4444' });
+            } else {
+                btn.innerText = '🚨 Mark as Stolen (Emergency Mode)';
+                btn.style.background = '#ef4444';
+                if (accuracyCircle) accuracyCircle.setStyle({ color: '#3b82f6', fillColor: '#3b82f6' });
+            }
+        }
+
+        // Live polling every 5 seconds
+        fetchLiveTelemetry();
+        setInterval(fetchLiveTelemetry, 5000);
+    </script>
+</body>
+</html>
