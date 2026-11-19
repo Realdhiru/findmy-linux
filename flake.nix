@@ -50,7 +50,11 @@
         }
       );
 
-      nixosModules.default = { config, lib, pkgs, ... }:
+            overlays.default = final: prev: {
+        findmy-beacon = self.packages.${final.stdenv.hostPlatform.system}.findmy-beacon;
+      };
+
+nixosModules.default = { config, lib, pkgs, ... }:
         let
           cfg = config.services.findmy-beacon;
           pkg = self.packages.${pkgs.stdenv.hostPlatform.system}.findmy-beacon;
